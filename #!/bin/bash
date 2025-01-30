@@ -1,0 +1,168 @@
+#!/bin/bash
+fisier_parole="passwords.csv" # Fișierul propriu zis (ID:username:parola:email:last_login)
+fisier_username="user.txt" # Fișier doar cu username-urile
+home_dir="home" # Directorul pentru utilizatori
+declare -A logged_in_users # Array pentru utilizatorii autentificați
+# Verificăm existența fișierelor și a directorului, dacă nu există le creăm
+mkdir -p "$home_dir"
+touch "$fisier_parole"
+touch "$fisier_username"
+# Funcția pentru generarea unui ID unic
+genereaza_id() {
+ if [ -s "$fisier_parole" ]; then
+ echo $(( $(tail -n 1 "$fisier_parole" | cut -d ':' -f 1) + 1 ))
+ else
+ echo 1
+ fi
+}
+# Funcția pentru validarea adresei de e-mail
+validare_email() {
+ [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$ ]]
+}
+# Funcția pentru adăugarea unui nou utilizator și a parolei aferente
+adauga_parola() {
+ ok=0
+ read -p "Introduceți numele noului utilizator sau iesire pentru a ieși: " username
+ while [ $ok -eq 0 ] && [ "$username" != "iesire" ]; do
+ if [ "$username" = "iesire" ]; then
+ read -p "Username-ul iesire este invalid, introduceți alt username: " username
+ elif grep -wq "$username" "$fisier_username"; then
+ read -p "Numele de utilizator $username este deja folosit, introduceți alt nume sau iesire pentru a
+ieși: " username
+ else
+ read -p "Introduceți parola pentru utilizatorul $username: " psw
+ read -p "Introduceți adresa de e-mail pentru utilizatorul $username: " email
+ while ! validare_email "$email"; do
+ read -p "Adresa de e-mail nu este validă, introduceți o adresă validă: " email
+ done
+ read -p "Care este animalul tau preferat? " anim
+ id=$(genereaza_id)
+ last_login=$(date "+%Y-%m-%d %H.%M.%S")
+echo "$username" >> "$fisier_username"
+ echo "$id:$username:$psw:$email:$anim:$last_login" >> "$fisier_parole"
+ mkdir -p "$home_dir/$username"
+ # Creare fisier raport.txt
+ num_files=$(find "$home_dir/$username" -type f | wc -l)
+ dir_size=$(du -sh "$home_dir/$username" | cut -f1)
+ echo -e "Numărul de fișiere: $num_files\nDimensiunea directorului: $dir_size" >
+"$home_dir/$username/raport.txt"
+ echo "Utilizatorul $username a fost adăugat cu succes!"
+ ok=1
+ fi
+ done
+}
+# Funcția pentru ștergerea utilizatorului
+stergere_utilizator() {
+ v=0
+ read -p "Pentru ce utilizator doriți să ștergeți parola? (introduceți iesire pentru a vă întoarce la meniul
+principal): " user
+ while [ $v -eq 0 ] && [ "$user" != "iesire" ]; do
+ if grep -qw "$user" "$fisier_username"; then
+ sed -i "/:$user:/d" "$fisier_parole"
+ sed -i "/^$user$/d" "$fisier_username"
+ rm -rf "$home_dir/$user"
+ echo "Parola și directorul pentru $user au fost șterse"
+ v=1
+ else
+ read -p "Utilizatorul $user nu a fost găsit! Introduceți un utilizator valid sau iesire pentru a ieși: "
+user
+ fi
+ done
+}
+# Funcția pentru afișarea parolelor
+afiseaza_parole() {
+ echo "Parolele și adresele de e-mail stocate sunt:"
+ echo "ID: Username: Parola: Email: Animal: Ultima autentificare"
+ while IFS=: read -r id username psw email anim last_login; do
+ printf "ID: %s | Username: %s | Parola: %s | Email: %s | Animal Preferat: %s | Ultima autentificare:
+%s\n" "$id" "$username" "$psw" "$email" "$anim" "$last_login"
+ done < "$fisier_parole"
+}
+# Funcția pentru resetarea parolei
+resetare_parola() {
+ k=0
+ read -p "Introduceți numele de utilizator pentru care doriți schimbarea parolei sau iesire pentru a ieși:
+" nume
+ while [ $k -eq 0 ] && [ "$nume" != "iesire" ]; do
+ if grep -wq "$nume" "$fisier_username"; then
+ parola=$(grep ":$nume:" "$fisier_parole" | cut -d ':' -f 3)
+ email=$(grep ":$nume:" "$fisier_parole" | cut -d ':' -f 4)
+ read -p "Introduceți parola actuală: " password
+ if [ "$password" == "$parola" ]; then
+ read -p "Introduceți noua parolă: " psw
+ sed -i "s/:$nume:$parola:$email/:$nume:$psw:$email/"
+"$/home/stud1018/andreiF/Proiect/passwords.csv"
+ echo "Parola utilizatorului $nume a fost schimbată cu succes!"
+ k=1
+ else
+ echo "Parola incorectă! Vă veți întoarce la meniul principal."
+ break
+ fi
+ else
+ read -p "Numele de utilizator $nume nu există, introduceți un nume de utilizator valid sau iesire
+pentru a ieși: " nume
+ fi
+ done
+}
+ # Funcția pentru autentificare
+autentificare() {
+ read -p "Introduceți numele de utilizator: " username
+ if grep -wq "$username" "$fisier_username"; then
+ parola=$(grep ":$username:" "$fisier_parole" | cut -d ':' -f 3)
+ animal=$(grep ":$username:" "$fisier_parole" | cut -d ':' -f 5)
+ read -p "Introduceți parola: " password
+ if [ "$password" == "$parola" ]; then
+ logged_in_users["$username"]=1
+ last_login=$(date "+%Y-%m-%d %H.%M.%S")
+ # Actualizăm doar data și ora ultimei autentificări în fișierul passwords.csv
+ sed -i "s/^\($username:[^:]*:[^:]*:[^:]*\):[^:]*/\1:$last_login/" "$fisier_parole"
+ echo "Autentificare reușită pentru utilizatorul $username la data și ora: $last_login"
+ cd "$home_dir/$username"
+ else
+ echo "Parola incorectă!"
+echo "Ai posibilitatea de a te conecta folosind animalul tau preferat! "
+ read -p "Introduceți animalul: " anima
+ if [ "$anima" == "$animal" ]; then
+ logged_in_users["$username"]=1
+ last_login=$(date "+%Y-%m-%d %H.%M.%S")
+ # Actualizăm doar data și ora ultimei autentificări în fișierul passwords.csv
+ sed -i "s/^\($username:[^:]*:[^:]*:[^:]*\):[^:]*/\1:$last_login/" "$fisier_parole"
+ echo "Autentificare reușită pentru utilizatorul $username la data și ora: $last_login"
+ cd "$home_dir/$username"
+ else
+ echo "Animal incorect!"
+ fi
+ fi
+ else
+ echo "Numele de utilizator nu există!"
+ fi
+}
+# Funcția pentru deconectare
+logout() {
+ read -p "Introduceți numele de utilizator pentru deconectare: " username
+ if [ "${logged_in_users["$username"]}" ]; then
+ unset logged_in_users["$username"]
+ echo "Utilizatorul $username a fost deconectat!"
+ else
+ echo "Utilizatorul $username nu este autentificat!"
+ fi
+}
+# Meniul principal
+while true; do
+ echo "1. Adaugă utilizator nou"
+ echo "2. Șterge utilizator"
+ echo "3. Resetează parolă"
+ echo "4. Afișează parolele și e-mailurile utilizatorilor"
+ echo "5. Autentificare"
+ echo "6. Iesire"
+ read -p "Alegeți o opțiune: " option
+ case $option in
+ 1) adauga_parola ;;
+ 2) stergere_utilizator ;;
+ 3) resetare_parola ;;
+ 4) afiseaza_parole ;;
+ 5) autentificare ;;
+ 6) echo "La revedere"; exit ;;
+ *) echo "Nu există această opțiune" ;;
+ esac
+done
