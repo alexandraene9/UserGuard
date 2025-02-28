@@ -1,0 +1,141 @@
+#!/bin/bash
+
+# Configurații
+fisier_utilizatori="users.csv"
+home_base="home"
+fisier_username="user.txt"
+declare -A logged_in_users
+
+# Inițializare
+mkdir -p "$home_base"
+touch "$fisier_utilizatori"
+touch "$fisier_username"
+[ -s "$fisier_utilizatori" ] || echo "id,username,email,password,home_directory,last_login,security_question,security_answer" > "$fisier_utilizatori"
+
+# Funcții utilitare
+hash_password() {
+    echo -n "$1" | sha256sum | awk '{print $1}'
+}
+
+genereaza_id() {
+    echo $(($(tail -n1 "$fisier_utilizatori" | cut -d',' -f1 2>/dev/null || echo 0) +1))
+}
+
+validare_email() {
+    [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$ ]]
+}
+
+# Adăugare utilizator
+adauga_utilizator() {
+    while :; do
+        read -p "Introduceti username: " username
+        [ "$username" == "iesire" ] && return
+        grep -q "$username" "$fisier_username" && echo "Username existent!" && continue
+        
+        read -p "Email: " email
+        validare_email "$email" || { echo "Email invalid"; continue; }
+        
+        read -sp "Parola: " password; echo
+        read -sp "Confirmati parola: " pass_confirm; echo
+        [ "$password" != "$pass_confirm" ] && echo "Parole nu coincid!" && continue
+        
+        read -p "Intrebare securitate: " question
+        read -p "Raspuns: " answer
+        
+        id=$(genereaza_id)
+        home_directory="$home_base/$username"
+        mkdir -p "$home_directory"
+        
+        echo "$username" >> "$fisier_username"
+        echo "$id,$username,$email,$(hash_password "$password"),$home_directory,,$question,$answer" >> "$fisier_utilizatori"
+        echo "Utilizator $username adaugat!"
+        break
+    done
+}
+
+# Autentificare
+autentificare_utilizator() {
+    read -p "Username: " username
+    line=$(grep -w "$username" "$fisier_utilizatori")
+    [ -z "$line" ] && echo "Utilizator inexistent" && return
+    
+    IFS=',' read -ra data <<< "$line"
+    read -sp "Parola: " password; echo
+    
+    if [ "$(hash_password "$password")" == "${data[3]}" ]; then
+        logged_in_users["$username"]=1
+        sed -i "s/\(^.*,$username,.*,\)\(.*\)$/\1$(date '+%Y-%m-%d %H:%M:%S')/" "$fisier_utilizatori"
+        cd "${data[4]}"
+        echo "Autentificat ca $username"
+    else
+        echo "Parola gresita! Verificare securitate:"
+        read -p "${data[6]}: " user_answer
+        [ "$user_answer" == "${data[7]}" ] && logged_in_users["$username"]=1 || echo "Esuat"
+    fi
+}
+
+# Stergere utilizator
+stergere_utilizator() {
+    read -p "Username de sters: " username
+    if grep -qw "$username" "$fisier_username"; then
+        sed -i "/^$username$/d" "$fisier_username"
+        sed -i "/,$username,/d" "$fisier_utilizatori"
+        rm -rf "$home_base/$username"
+        echo "Utilizator $username sters"
+    else
+        echo "Utilizator negasit"
+    fi
+}
+
+# Resetare parola
+resetare_parola() {
+    read -p "Username: " username
+    line=$(grep -w "$username" "$fisier_utilizatori")
+    [ -z "$line" ] && echo "Utilizator inexistent" && return
+    
+    IFS=',' read -ra data <<< "$line"
+    read -p "${data[6]}: " answer
+    [ "$answer" != "${data[7]}" ] && echo "Raspuns gresit" && return
+    
+    read -sp "Noua parola: " new_pass; echo
+    read -sp "Confirmati parola: " pass_confirm; echo
+    [ "$new_pass" != "$pass_confirm" ] && echo "Parole nu coincid" && return
+    
+    new_hash=$(hash_password "$new_pass")
+    sed -i "s/\($username,[^,]*,[^,]*,\)[^,]*/\1$new_hash/" "$fisier_utilizatori"
+    echo "Parola actualizata"
+}
+
+# Raport
+genereaza_raport() {
+    [ -z "${logged_in_users[$1]}" ] && echo "Nu sunteti autentificat" && return
+    
+    line=$(grep -w "$1" "$fisier_utilizatori")
+    IFS=',' read -ra data <<< "$line"
+    
+    echo "Raport pentru $1:"
+    echo "Ultima autentificare: ${data[5]}"
+    echo "Fisiere: $(find "${data[4]}" -type f | wc -l)"
+    echo "Dimensiune: $(du -sh "${data[4]}" | cut -f1)"
+}
+
+# Meniu
+while true; do
+    echo "1. Adauga utilizator"
+    echo "2. Autentificare"
+    echo "3. Sterge utilizator"
+    echo "4. Resetare parola"
+    echo "5. Raport"
+    echo "6. Iesire"
+    
+    read -p "Optiune: " opt
+    case $opt in
+        1) adauga_utilizator ;;
+        2) autentificare_utilizator ;;
+        3) stergere_utilizator ;;
+        4) resetare_parola ;;
+        5) [ -n "${!logged_in_users[*]}" ] && genereaza_raport "${!logged_in_users[@]}" || echo "Autentificati-va" ;;
+        6) exit ;;
+        *) echo "Optiune invalida" ;;
+    esac
+done
